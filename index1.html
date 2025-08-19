@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live GPS Vehicle Tracking</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        #map {
+            flex: 1;
+            height: 100vh;
+            border-radius: 10px 0 0 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .sidebar {
+            width: 350px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            overflow-y: auto;
+            border-radius: 0 10px 10px 0;
+            box-shadow: -5px 0 20px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 1.8em;
+            margin-bottom: 5px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-online {
+            background-color: #4CAF50;
+        }
+
+        .status-offline {
+            background-color: #f44336;
+        }
+
+        .status-waiting {
+            background-color: #ff9800;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .connection-panel {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-left: 4px solid #2196F3;
+        }
+
+        .serial-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .serial-status {
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .status-connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .status-disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .vehicle-card {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-left: 4px solid #667eea;
+            transition: transform 0.3s ease;
+        }
+
+        .vehicle-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+        }
+
+        .vehicle-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .vehicle-id {
+            font-weight: bold;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .speed-badge {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .info-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .info-value {
+            color: #333;
+            font-weight: bold;
+        }
+
+        .controls {
+            margin-top: 20px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-connect {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+        }
+
+        .btn-disconnect {
+            background: linear-gradient(45deg, #f44336, #da190b);
+        }
+
+        .alert {
+            background: #ff4757;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            animation: slideIn 0.3s ease;
+        }
+
+        .alert.success {
+            background: #2ed573;
+        }
+
+        .alert.info {
+            background: #3742fa;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(-100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .data-log {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            border: 1px solid #dee2e6;
+        }
+
+        .emergency-btn {
+            background: linear-gradient(45deg, #ff4757, #ff3742);
+        }
+
+        select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-left: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="map"></div>
+        <div class="sidebar">
+            <div class="header">
+                <h1>🚑 Live GPS Tracker</h1>
+                <div>
+                    <span class="status-indicator status-waiting" id="status-indicator"></span>
+                    <span id="status-text">Waiting for GPS</span>
+                </div>
+            </div>
+
+            <div class="connection-panel">
+                <h3>📡 Serial Connection</h3>
+                <div class="serial-controls">
+                    <button class="btn btn-connect" id="connect-btn" onclick="connectSerial()">
+                        🔌 Connect Arduino
+                    </button>
+                    <div class="serial-status status-disconnected" id="serial-status">
+                        Not Connected
+                    </div>
+                    <div>
+                        <label>Baud Rate:</label>
+                        <select id="baud-rate">
+                            <option value="9600" selected>9600</option>
+                            <option value="115200">115200</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="data-log" id="data-log">
+                    Waiting for GPS data...<br>
+                    Make sure Arduino is connected via USB.<br>
+                </div>
+            </div>
+
+            <div id="vehicle-list">
+                <!-- Vehicle cards will be populated here -->
+            </div>
+
+            <div class="controls">
+                <button class="btn" onclick="centerMap()" disabled id="center-btn">📍 Center on Vehicle</button>
+                <button class="btn" onclick="toggleTrail()">🛤 Toggle Trail</button>
+                <button class="btn" onclick="downloadGPSData()">💾 Download Data</button>
+                <button class="btn emergency-btn" onclick="sendEmergencyAlert()">🚨 Emergency Alert</button>
+            </div>
+
+            <div id="alerts">
+                <!-- Alerts will appear here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        // Initialize map - will center on first GPS coordinate received
+        const map = L.map('map').setView([12.9716, 77.5946], 13);
+
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        // Global variables
+        let vehicles = {};
+        let showTrail = true;
+        let port = null;
+        let reader = null;
+        let isConnected = false;
+        let gpsDataLog = [];
+        let firstPositionReceived = false;
+
+        // Custom vehicle icon
+        const vehicleIcon = L.divIcon({
+            className: 'vehicle-marker',
+            html: '🚑',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15]
+        });
+
+        // Serial connection functions
+        async function connectSerial() {
+            if (!('serial' in navigator)) {
+                showAlert('❌ Web Serial API not supported. Please use Chrome/Edge browser.', 'error');
+                return;
+            }
+
+            try {
+                const connectBtn = document.getElementById('connect-btn');
+                
+                if (!isConnected) {
+                    // Connect
+                    port = await navigator.serial.requestPort();
+                    const baudRate = parseInt(document.getElementById('baud-rate').value);
+                    await port.open({ baudRate: baudRate });
+
+                    connectBtn.textContent = '🔌 Disconnect Arduino';
+                    connectBtn.className = 'btn btn-disconnect';
+                    updateSerialStatus(true);
+                    isConnected = true;
+
+                    // Start reading data
+                    readSerialData();
+                    showAlert('✅ Arduino connected successfully!', 'success');
+
+                } else {
+                    // Disconnect
+                    if (reader) {
+                        await reader.cancel();
+                    }
+                    if (port) {
+                        await port.close();
+                    }
+                    connectBtn.textContent = '🔌 Connect Arduino';
+                    connectBtn.className = 'btn btn-connect';
+                    updateSerialStatus(false);
+                    isConnected = false;
+                    port = null;
+                    reader = null;
+                    showAlert('❌ Arduino disconnected', 'info');
+                }
+            } catch (error) {
+                console.error('Serial connection error:', error);
+                showAlert(`❌ Failed to connect: ${error.message}`, 'error');
+                updateSerialStatus(false);
+                isConnected = false;
+            }
+        }
+
+        async function readSerialData() {
+            if (!port) return;
+
+            try {
+                reader = port.readable.getReader();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    // Convert Uint8Array to string
+                    const chunk = new TextDecoder().decode(value);
+                    buffer += chunk;
+
+                    // Process complete lines
+                    let lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep incomplete line in buffer
+
+                    for (let line of lines) {
+                        line = line.trim();
+                        if (line) {
+                            processGPSData(line);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Read error:', error);
+                if (error.name !== 'NetworkError') {
+                    showAlert('📡 GPS data stream interrupted', 'error');
+                }
+            } finally {
+                if (reader) {
+                    reader.releaseLock();
+                    reader = null;
+                }
+            }
+        }
+
+        function processGPSData(data) {
+            // Log raw data
+            logData(`Raw: ${data}`);
+
+            try {
+                // Try to parse as JSON
+                const gpsData = JSON.parse(data);
+                
+                if (gpsData.error) {
+                    logData(`Error: ${gpsData.error}`);
+                    updateStatus('offline', 'GPS Error');
+                    return;
+                }
+
+                // Validate GPS data
+                if (gpsData.latitude && gpsData.longitude && 
+                    !isNaN(gpsData.latitude) && !isNaN(gpsData.longitude)) {
+                    
+                    // Add timestamp if not present
+                    if (!gpsData.timestamp) {
+                        gpsData.timestamp = new Date().toLocaleString();
+                    }
+                    
+                    // Add vehicle_id if not present
+                    if (!gpsData.vehicle_id) {
+                        gpsData.vehicle_id = 'Vehicle-001';
+                    }
+
+                    // Update vehicle position
+                    updateVehiclePosition(gpsData);
+                    updateVehicleCard(gpsData);
+                    
+                    // Store data for download
+                    gpsDataLog.push({
+                        ...gpsData,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    // Keep only last 1000 points
+                    if (gpsDataLog.length > 1000) {
+                        gpsDataLog.shift();
+                    }
+
+                    // Center map on first position
+                    if (!firstPositionReceived) {
+                        map.setView([gpsData.latitude, gpsData.longitude], 15);
+                        firstPositionReceived = true;
+                        document.getElementById('center-btn').disabled = false;
+                    }
+
+                    updateStatus('online', 'Live GPS');
+                    logData(`✅ GPS: ${gpsData.latitude.toFixed(6)}, ${gpsData.longitude.toFixed(6)} | Speed: ${gpsData.speed || 0} km/h | Sats: ${gpsData.satellites || 'N/A'}`);
+                } else {
+                    logData('⚠ Invalid GPS data received');
+                }
+
+            } catch (error) {
+                // If not JSON, log as raw message
+                logData(`Info: ${data}`);
+            }
+        }
+
+        function updateVehiclePosition(data) {
+            const { vehicle_id, latitude, longitude, speed, timestamp } = data;
+            
+            if (!vehicles[vehicle_id]) {
+                // Create new vehicle
+                vehicles[vehicle_id] = {
+                    marker: L.marker([latitude, longitude], {icon: vehicleIcon}).addTo(map),
+                    trail: L.polyline([], {color: '#667eea', weight: 3, opacity: 0.7}).addTo(map),
+                    positions: [],
+                    data: data
+                };
+            }
+            
+            // Update position
+            const newLatLng = [latitude, longitude];
+            vehicles[vehicle_id].marker.setLatLng(newLatLng);
+            
+            // Update trail
+            vehicles[vehicle_id].positions.push(newLatLng);
+            if (vehicles[vehicle_id].positions.length > 200) {
+                vehicles[vehicle_id].positions.shift();
+            }
+            
+            if (showTrail) {
+                vehicles[vehicle_id].trail.setLatLngs(vehicles[vehicle_id].positions);
+            }
+            
+            // Update data
+            vehicles[vehicle_id].data = data;
+            
+            // Update popup
+            vehicles[vehicle_id].marker.bindPopup(`
+                <div style="text-align: center;">
+                    <h3>🚑 ${vehicle_id}</h3>
+                    <p><strong>Speed:</strong> ${speed || 0} km/h</p>
+                    <p><strong>Time:</strong> ${timestamp}</p>
+                    <p><strong>GPS:</strong> ${latitude.toFixed(6)}, ${longitude.toFixed(6)}</p>
+                    <p><strong>Satellites:</strong> ${data.satellites || 'N/A'}</p>
+                </div>
+            `);
+        }
+
+        function updateVehicleCard(data) {
+            const vehicleList = document.getElementById('vehicle-list');
+            
+            const cardHTML = `
+                <div class="vehicle-card" id="card-${data.vehicle_id}">
+                    <div class="vehicle-header">
+                        <span class="vehicle-id">🚑 ${data.vehicle_id}</span>
+                        <span class="speed-badge">${data.speed || 0} km/h</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Driver:</span>
+                        <span class="info-value">${data.driver || 'N/A'}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Phone:</span>
+                        <span class="info-value">${data.phone || 'N/A'}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Satellites:</span>
+                        <span class="info-value">${data.satellites || 'N/A'}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Last Update:</span>
+                        <span class="info-value">${data.timestamp}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Coordinates:</span>
+                        <span class="info-value">${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}</span>
+                    </div>
+                </div>
+            `;
+            
+            const existingCard = document.getElementById(`card-${data.vehicle_id}`);
+            if (existingCard) {
+                existingCard.outerHTML = cardHTML;
+            } else {
+                vehicleList.innerHTML = cardHTML;
+            }
+        }
+
+        function updateSerialStatus(connected) {
+            const statusDiv = document.getElementById('serial-status');
+            if (connected) {
+                statusDiv.textContent = '✅ Connected';
+                statusDiv.className = 'serial-status status-connected';
+            } else {
+                statusDiv.textContent = '❌ Not Connected';
+                statusDiv.className = 'serial-status status-disconnected';
+            }
+        }
+
+        function updateStatus(status, text) {
+            const indicator = document.getElementById('status-indicator');
+            const statusText = document.getElementById('status-text');
+            
+            indicator.className = `status-indicator status-${status}`;
+            statusText.textContent = text;
+        }
+
+        function logData(message) {
+            const logDiv = document.getElementById('data-log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            
+            // Keep only last 50 messages
+            const lines = logDiv.innerHTML.split('<br>');
+            if (lines.length > 50) {
+                logDiv.innerHTML = lines.slice(-50).join('<br>');
+            }
+        }
+
+        // Control functions
+        function centerMap() {
+            const vehicleId = Object.keys(vehicles)[0];
+            if (vehicleId && vehicles[vehicleId]) {
+                const position = vehicles[vehicleId].marker.getLatLng();
+                map.setView(position, 15);
+                vehicles[vehicleId].marker.openPopup();
+            } else {
+                showAlert('❌ No vehicle data available', 'error');
+            }
+        }
+
+        function toggleTrail() {
+            showTrail = !showTrail;
+            Object.values(vehicles).forEach(vehicle => {
+                if (showTrail) {
+                    vehicle.trail.addTo(map);
+                } else {
+                    map.removeLayer(vehicle.trail);
+                }
+            });
+            showAlert(showTrail ? '✅ Trail enabled' : '❌ Trail disabled', 'info');
+        }
+
+        function downloadGPSData() {
+            if (gpsDataLog.length === 0) {
+                showAlert('❌ No GPS data to download', 'error');
+                return;
+            }
+
+            const csvContent = "data:text/csv;charset=utf-8," 
+                + "Timestamp,Vehicle ID,Latitude,Longitude,Speed,Satellites\n"
+                + gpsDataLog.map(row => 
+                    `${row.timestamp},${row.vehicle_id},${row.latitude},${row.longitude},${row.speed || 0},${row.satellites || 0}`
+                ).join("\n");
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `gps_data_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showAlert(`📁 Downloaded ${gpsDataLog.length} GPS records`, 'success');
+        }
+
+        function sendEmergencyAlert() {
+            const vehicleId = Object.keys(vehicles)[0];
+            if (vehicleId && vehicles[vehicleId]) {
+                const data = vehicles[vehicleId].data;
+                showAlert('🚨 Emergency Alert Sent!', 'error');
+                
+                // Create emergency data
+                const emergencyData = {
+                    alert_type: 'EMERGENCY',
+                    vehicle_id: vehicleId,
+                    latitude: data.latitude,
+                    longitude: data.longitude,
+                    timestamp: new Date().toISOString(),
+                    speed: data.speed
+                };
+                
+                logData(`🚨 EMERGENCY: ${JSON.stringify(emergencyData)}`);
+                
+                // Add emergency marker
+                const position = vehicles[vehicleId].marker.getLatLng();
+                const emergencyMarker = L.marker(position, {
+                    icon: L.divIcon({
+                        className: 'emergency-marker',
+                        html: '🚨',
+                        iconSize: [40, 40],
+                        iconAnchor: [20, 20]
+                    })
+                }).addTo(map);
+                
+                setTimeout(() => {
+                    map.removeLayer(emergencyMarker);
+                }, 10000);
+            } else {
+                showAlert('❌ No vehicle connected', 'error');
+            }
+        }
+
+        function showAlert(message, type = 'info') {
+            const alertsContainer = document.getElementById('alerts');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert ${type}`;
+            alertDiv.textContent = message;
+            
+            alertsContainer.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+
+        // Initialize
+        window.onload = function() {
+            showAlert('🚀 GPS Vehicle Tracker Ready!', 'success');
+            logData('System initialized. Connect Arduino to start GPS tracking.');
+            
+            // Check for Web Serial support
+            if (!('serial' in navigator)) {
+                showAlert('❌ Web Serial not supported. Please use Chrome/Edge browser.', 'error');
+                logData('❌ Web Serial API not supported in this browser');
+            }
+        };
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey) {
+                switch(e.key) {
+                    case 'c':
+                        e.preventDefault();
+                        centerMap();
+                        break;
+                    case 't':
+                        e.preventDefault();
+                        toggleTrail();
+                        break;
+                    case 'e':
+                        e.preventDefault();
+                        sendEmergencyAlert();
+                        break;
+                }
+            }
+        });
+
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                logData('📱 Page hidden - GPS tracking continues in background');
+            } else {
+                logData('👁 Page visible - GPS tracking active');
+            }
+        });
+
+        // Handle connection errors
+        window.addEventListener('beforeunload', function() {
+            if (isConnected && port) {
+                port.close();
+            }
+        });
+    </script>
+</body>
+</html>
